@@ -264,10 +264,10 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
       ondrop="onDrop(event)">
       <i class="ti ti-table-import"></i>
       <p>엑셀 파일을 드래그하거나 클릭해서 업로드</p>
-      <small>필수 컬럼: <code>출고일</code> &nbsp;·&nbsp; <code>출고수량</code> (헤더 행 포함)</small>
+      <small>필수 컬럼: <code>출고일</code> &nbsp;·&nbsp; <code>주문번호</code> (행 1개 = 주문 1건으로 카운트)</small>
     </div>
     <input type="file" id="xlsx-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="onFileIn(event)">
-    <div style="margin-top:10px;font-size:12px;color:var(--text3)"><i class="ti ti-info-circle"></i> 날짜 형식: YYYY-MM-DD 또는 엑셀 시리얼 숫자 모두 인식합니다.</div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text3)"><i class="ti ti-info-circle"></i> WMS 원본 데이터 그대로 올리면 됩니다. 날짜별 행 수를 주문건수로 자동 집계합니다.</div>
   </div>
 
   <div class="card" id="ship-preview-card" style="display:none">
@@ -287,7 +287,7 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
 
   <div class="sec"><i class="ti ti-list"></i>출고 기록</div>
   <div class="table-wrap">
-    <table><thead><tr><th>출고일</th><th>출고건수</th><th>누적 출고</th><th>박스·메일러 소모율</th><th>테이프 소모율</th><th>상태</th><th></th></tr></thead>
+    <table><thead><tr><th>출고일</th><th>주문건수</th><th>누적 주문건수</th><th>박스·메일러 소모율</th><th>테이프 소모율</th><th>상태</th><th></th></tr></thead>
     <tbody id="ship-tbody"></tbody></table>
     <div id="ship-empty" class="empty"><i class="ti ti-truck-off"></i>출고 데이터가 없습니다</div>
   </div>
@@ -527,9 +527,15 @@ function readXLSX(file){
       if(!rows.length){alert('데이터가 없습니다.');return;}
       const keys=Object.keys(rows[0]);
       const dKey=keys.find(k=>/출고.*일|date/i.test(k));
-      const qKey=keys.find(k=>/출고.*수량|수량|qty|quantity/i.test(k));
-      if(!dKey||!qKey){alert(`열 이름 오류.\n현재 열: ${keys.join(', ')}\n필요 열: 출고일, 출고수량`);return;}
-      const parsed=rows.map(r=>({date:fmtD(r[dKey]),qty:+r[qKey]})).filter(r=>r.date&&r.qty>0);
+      if(!dKey){alert(`열 이름 오류.\n현재 열: ${keys.join(', ')}\n필요 열: 출고일 (출고수량 열은 선택사항)`);return;}
+      // 주문건수 기준: 날짜별 행 수를 카운트 (출고수량은 제품 수량이므로 무시)
+      const byDate={};
+      rows.forEach(row=>{
+        const d=fmtD(row[dKey]);
+        if(d&&d.match(/\d{4}-\d{2}-\d{2}/))byDate[d]=(byDate[d]||0)+1;
+      });
+      const parsed=Object.entries(byDate).map(([date,orders])=>({date,qty:orders}));
+      parsed.sort((a,b)=>a.date.localeCompare(b.date));
       if(!parsed.length){alert('유효한 행이 없습니다.');return;}
       showShipPreview(parsed);
     }catch(err){alert('파일 오류: '+err.message);}
@@ -539,8 +545,8 @@ function showShipPreview(rows){
   S.pending=rows;
   const total=rows.reduce((a,r)=>a+r.qty,0);
   const dates=rows.map(r=>r.date).sort();
-  document.getElementById('ship-preview-sum').innerHTML=`<strong>${rows.length}행</strong> · 총 출고 <strong>${fmt(total)}건</strong> · ${dates[0]} ~ ${dates[dates.length-1]}`;
-  document.getElementById('ship-preview-tbody').innerHTML=rows.slice(0,60).map(r=>`<tr><td>${r.date}</td><td class="mono">${fmt(r.qty)}</td></tr>`).join('')+(rows.length>60?`<tr><td colspan="2" style="text-align:center;color:var(--text3);font-size:11px">... 외 ${rows.length-60}행</td></tr>`:'');
+  document.getElementById('ship-preview-sum').innerHTML=`<strong>${dates.length}일</strong> · 총 주문건수 <strong>${fmt(total)}건</strong> · ${dates[0]} ~ ${dates[dates.length-1]}`;
+  document.getElementById('ship-preview-tbody').innerHTML=rows.slice(0,60).map(r=>`<tr><td>${r.date}</td><td class="mono">${fmt(r.qty)} 건</td></tr>`).join('')+(rows.length>60?`<tr><td colspan="2" style="text-align:center;color:var(--text3);font-size:11px">... 외 ${rows.length-60}행</td></tr>`:'');
   document.getElementById('ship-preview-card').style.display='block';
 }
 function cancelShip(){S.pending=[];document.getElementById('ship-preview-card').style.display='none';}
