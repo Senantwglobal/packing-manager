@@ -264,10 +264,10 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
       ondrop="onDrop(event)">
       <i class="ti ti-table-import"></i>
       <p>엑셀 파일을 드래그하거나 클릭해서 업로드</p>
-      <small>필수 컬럼: <code>출고일</code> &nbsp;·&nbsp; <code>주문번호</code> (행 1개 = 주문 1건으로 카운트)</small>
+      <small>필수 컬럼: <code>출고일</code> &nbsp;·&nbsp; <code>주문번호</code> — 주문번호 기준 distinct count로 자동 집계</small>
     </div>
     <input type="file" id="xlsx-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="onFileIn(event)">
-    <div style="margin-top:10px;font-size:12px;color:var(--text3)"><i class="ti ti-info-circle"></i> WMS 원본 데이터 그대로 올리면 됩니다. 날짜별 행 수를 주문건수로 자동 집계합니다.</div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text3)"><i class="ti ti-info-circle"></i> WMS 원본 데이터 그대로 올리면 됩니다. 같은 주문번호가 여러 행이어도 날짜별 distinct count로 자동 집계됩니다.</div>
   </div>
 
   <div class="card" id="ship-preview-card" style="display:none">
@@ -527,25 +527,32 @@ function readXLSX(file){
       if(!rows.length){alert('데이터가 없습니다.');return;}
       const keys=Object.keys(rows[0]);
       const dKey=keys.find(k=>/출고.*일|date/i.test(k));
-      if(!dKey){alert(`열 이름 오류.\n현재 열: ${keys.join(', ')}\n필요 열: 출고일 (출고수량 열은 선택사항)`);return;}
-      // 주문건수 기준: 날짜별 행 수를 카운트 (출고수량은 제품 수량이므로 무시)
-      const byDate={};
+      const oKey=keys.find(k=>/주문.*번호|order.*id|order.*no/i.test(k));
+      if(!dKey){alert(`열 이름 오류.\n현재 열: ${keys.join(', ')}\n필요 열: 출고일, 주문번호`);return;}
+      // 날짜별 주문번호 distinct count
+      const byDate={};  // {date: Set(주문번호)}
       rows.forEach(row=>{
         const d=fmtD(row[dKey]);
-        if(d&&d.match(/\d{4}-\d{2}-\d{2}/))byDate[d]=(byDate[d]||0)+1;
+        if(!d||!d.match(/\d{4}-\d{2}-\d{2}/))return;
+        if(!byDate[d])byDate[d]=new Set();
+        const orderId=oKey?String(row[oKey]):null;
+        if(orderId)byDate[d].add(orderId);
+        else byDate[d].add('__row_'+Math.random()); // 주문번호 없으면 행 기준
       });
-      const parsed=Object.entries(byDate).map(([date,orders])=>({date,qty:orders}));
+      const parsed=Object.entries(byDate).map(([date,set])=>({date,qty:set.size}));
       parsed.sort((a,b)=>a.date.localeCompare(b.date));
       if(!parsed.length){alert('유효한 행이 없습니다.');return;}
-      showShipPreview(parsed);
+      const hasOrderKey=!!oKey;
+      showShipPreview(parsed, hasOrderKey);
     }catch(err){alert('파일 오류: '+err.message);}
   };r.readAsBinaryString(file);
 }
-function showShipPreview(rows){
+function showShipPreview(rows, hasOrderKey){
   S.pending=rows;
   const total=rows.reduce((a,r)=>a+r.qty,0);
   const dates=rows.map(r=>r.date).sort();
-  document.getElementById('ship-preview-sum').innerHTML=`<strong>${dates.length}일</strong> · 총 주문건수 <strong>${fmt(total)}건</strong> · ${dates[0]} ~ ${dates[dates.length-1]}`;
+  const method=hasOrderKey?'주문번호 distinct count':'행 수 기준';
+  document.getElementById('ship-preview-sum').innerHTML=`<strong>${dates.length}일</strong> · 총 주문건수 <strong>${fmt(total)}건</strong> · ${dates[0]} ~ ${dates[dates.length-1]} <span style="color:var(--text3);font-size:11px">(${method})</span>`;
   document.getElementById('ship-preview-tbody').innerHTML=rows.slice(0,60).map(r=>`<tr><td>${r.date}</td><td class="mono">${fmt(r.qty)} 건</td></tr>`).join('')+(rows.length>60?`<tr><td colspan="2" style="text-align:center;color:var(--text3);font-size:11px">... 외 ${rows.length-60}행</td></tr>`:'');
   document.getElementById('ship-preview-card').style.display='block';
 }
