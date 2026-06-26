@@ -221,7 +221,17 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
 
   <!-- 인보이스별 요약 -->
   <div class="card">
-    <div class="card-hd"><div class="card-hd-l"><i class="ti ti-file-invoice"></i>인보이스별 요약</div></div>
+    <div class="card-hd">
+      <div class="card-hd-l"><i class="ti ti-file-invoice"></i>인보이스별 요약</div>
+      <div style="display:flex;align-items:center;gap:7px">
+        <div style="position:relative">
+          <i class="ti ti-search" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);pointer-events:none"></i>
+          <input type="text" id="inv-search" placeholder="인보이스 번호 검색..." oninput="renderInvoiceSummary()" style="width:220px;padding-left:30px;font-size:12px">
+        </div>
+        <button class="btn sm ghost" onclick="document.getElementById('inv-search').value='';renderInvoiceSummary()"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div id="inv-result-count" style="font-size:12px;color:var(--text3);margin-bottom:8px;display:none"></div>
     <div id="invoice-summary"></div>
   </div>
 </div>
@@ -258,11 +268,35 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
       </div>
     </div>
   </div>
-  <div class="sec"><i class="ti ti-list"></i>주문 이력 <button class="btn sm ghost" id="toggle-orders" onclick="toggleOrders()">펼치기</button></div>
-  <div id="order-wrap" style="display:none">
-    <div class="tw"><table><thead><tr><th>주문일</th><th>공급업체</th><th>아이템</th><th>카테고리</th><th>수량(원)</th><th>EA환산</th><th>단가</th><th>총금액</th><th>인보이스</th><th></th></tr></thead>
-    <tbody id="order-tbody"></tbody></table>
-    <div id="order-empty" class="empty"><i class="ti ti-shopping-cart-off"></i>등록된 주문이 없습니다</div></div>
+  <div class="sec"><i class="ti ti-list"></i>주문 이력</div>
+  <div id="order-wrap">
+    <div id="order-empty" class="empty" style="display:none"><i class="ti ti-shopping-cart-off"></i>등록된 주문이 없습니다</div>
+    <div id="order-by-date"></div>
+  </div>
+
+  <!-- 수정 모달 -->
+  <div id="edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center">
+    <div style="background:var(--surface);border-radius:12px;padding:24px;width:520px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+      <div style="font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <span><i class="ti ti-edit" style="color:var(--accent)"></i> 주문 수정</span>
+        <button class="btn sm ghost" onclick="closeEditModal()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="frow">
+        <div class="fg" style="flex:0 0 140px"><label>주문일</label><input type="date" id="ed-date"></div>
+        <div class="fg" style="flex:0 0 130px"><label>인보이스 #</label><input type="text" id="ed-inv"></div>
+        <div class="fg"><label>아이템 (읽기전용)</label><input type="text" id="ed-name" readonly></div>
+      </div>
+      <div class="frow">
+        <div class="fg" style="flex:0 0 120px"><label>주문수량 (원단위)</label><input type="number" id="ed-qty" oninput="calcEdit()"></div>
+        <div class="fg" style="flex:0 0 120px"><label id="ed-ea-lbl">EA 환산</label><input type="text" id="ed-ea" readonly></div>
+        <div class="fg" style="flex:0 0 105px"><label>단가 ($)</label><input type="number" id="ed-price" step="0.01" oninput="calcEdit()"></div>
+        <div class="fg" style="flex:0 0 115px"><label>총금액 (자동)</label><input type="text" id="ed-total" readonly></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button class="btn ghost" onclick="closeEditModal()">취소</button>
+        <button class="btn primary" onclick="saveEdit()"><i class="ti ti-check"></i>저장</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -315,7 +349,7 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
   </div>
   <div class="card">
     <div class="card-hd"><div class="card-hd-l"><i class="ti ti-report"></i>월별 소모율 상세</div></div>
-    <div class="tw"><table><thead><tr><th>월</th><th>출고건수</th><th>주문EA</th><th>박스·메일러/건</th><th>테이프/천건</th><th>에어스피드/천건</th><th>판정</th></tr></thead>
+    <div class="tw"><table><thead><tr><th>월</th><th>출고건수</th><th>외부포장(EA)</th><th>박스·메일러/건</th><th>완충재/천건</th><th>주요완충재</th><th>테이프/천건</th><th>판정</th></tr></thead>
     <tbody id="analysis-tbody"></tbody></table>
     <div id="analysis-empty" class="empty"><i class="ti ti-chart-bar-off"></i>출고 데이터와 주문 이력을 먼저 입력하세요</div></div>
   </div>
@@ -547,15 +581,100 @@ function submitOrder(){
   clearOrder();saveLocal();renderOrderTable();updateSBar();
 }
 function clearOrder(){S.selMaster=null;document.getElementById('o-panel').style.display='none';renderOrderMaster();}
-function delOrder(id){S.orders=S.orders.filter(o=>o.id!==id);saveLocal();renderOrderTable();}
-function toggleOrders(){const w=document.getElementById('order-wrap');const b=document.getElementById('toggle-orders');const h=w.style.display==='none';w.style.display=h?'block':'none';b.textContent=h?'접기':'펼치기';}
+function delOrder(id){if(!confirm('삭제하시겠습니까?'))return;S.orders=S.orders.filter(o=>o.id!==id);saveLocal();renderOrderTable();renderDashboard();}
+
+// ── ORDER TABLE: 날짜별 그룹 ──
+let _openDates=new Set();
 function renderOrderTable(){
-  const tbody=document.getElementById('order-tbody');const empty=document.getElementById('order-empty');
+  const empty=document.getElementById('order-empty');
+  const container=document.getElementById('order-by-date');
   const sorted=[...S.orders].sort((a,b)=>b.date.localeCompare(a.date));
-  if(!sorted.length){tbody.innerHTML='';empty.style.display='block';return;}
+  if(!sorted.length){container.innerHTML='';empty.style.display='block';return;}
   empty.style.display='none';
-  tbody.innerHTML=sorted.map(o=>`<tr><td>${o.date}</td><td><span class="chip">${o.sup}</span></td><td><span class="mono" style="font-size:11px;color:var(--text3)">${o.code}</span>${o.size?` <span style="font-size:11px;color:var(--text3)">${o.size}</span>`:''}<br>${o.name}</td><td>${catBadge(o.cat)}</td><td class="mono">${fmt(o.qty)} ${o.unit}</td><td class="mono">${fmt(o.qtyEA)}</td><td class="mono">$${o.price.toFixed(2)}</td><td class="mono">$${fmt(o.total)}</td><td style="font-size:11px;color:var(--text3)">${o.inv||'—'}</td><td><button class="btn sm red" onclick="delOrder(${o.id})"><i class="ti ti-trash"></i></button></td></tr>`).join('');
+  // group by date
+  const byDate={};
+  sorted.forEach(o=>{if(!byDate[o.date])byDate[o.date]=[];byDate[o.date].push(o);});
+  const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+  container.innerHTML=dates.map(d=>{
+    const rows=byDate[d];
+    const dayTotal=rows.reduce((a,o)=>a+o.total,0);
+    const isOpen=_openDates.has(d);
+    const rowsHtml=rows.map(o=>`<tr>
+      <td><span class="chip">${o.sup}</span></td>
+      <td><span class="mono" style="font-size:11px;color:var(--text3)">${o.code}</span>${o.size?` <span style="font-size:10px;color:var(--text3)">${o.size}</span>`:''}<br><span style="font-size:12px">${o.name}</span></td>
+      <td>${catBadge(o.cat)}</td>
+      <td class="mono">${fmt(o.qty)} ${o.unit}</td>
+      <td class="mono">${fmt(o.qtyEA)}</td>
+      <td class="mono">$${o.price.toFixed(2)}</td>
+      <td class="mono" style="font-weight:600">$${fmt(o.total)}</td>
+      <td style="font-size:11px;color:var(--text3)">${o.inv||'—'}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn sm ghost" onclick="openEditModal(${o.id})" title="수정"><i class="ti ti-edit"></i></button>
+          <button class="btn sm red" onclick="delOrder(${o.id})" title="삭제"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`).join('');
+    return`<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden">
+      <div onclick="toggleDate('${d}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer;background:${isOpen?'var(--accent-bg)':'var(--bg)'};transition:background .12s">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ti ti-chevron-${isOpen?'down':'right'}" style="font-size:13px;color:var(--text3)"></i>
+          <span style="font-size:13px;font-weight:700">${d}</span>
+          <span class="chip">${rows.length}개 아이템</span>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:var(--accent)">$${fmt(dayTotal)}</span>
+      </div>
+      <div style="display:${isOpen?'block':'none'}" id="date-body-${d.replace(/-/g,'')}">
+        <div class="tw" style="border-radius:0;border:none;border-top:1px solid var(--border)">
+          <table><thead><tr><th>공급업체</th><th>아이템</th><th>카테고리</th><th>수량(원)</th><th>EA환산</th><th>단가</th><th>총금액</th><th>인보이스</th><th></th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+  }).join('');
 }
+function toggleDate(d){
+  if(_openDates.has(d))_openDates.delete(d);else _openDates.add(d);
+  renderOrderTable();
+}
+
+// ── EDIT MODAL ──
+let _editId=null;
+function openEditModal(id){
+  const o=S.orders.find(x=>x.id===id);if(!o)return;
+  _editId=id;
+  document.getElementById('ed-date').value=o.date;
+  document.getElementById('ed-inv').value=o.inv||'';
+  document.getElementById('ed-name').value=`${o.code}${o.size?' '+o.size:''} — ${o.name}`;
+  document.getElementById('ed-qty').value=o.qty;
+  document.getElementById('ed-price').value=o.price;
+  document.getElementById('ed-ea-lbl').textContent=`EA 환산 (×${o.conv})`;
+  document.getElementById('ed-ea').value=o.qty*o.conv+' EA';
+  document.getElementById('ed-total').value='$'+(o.qty*o.price).toFixed(2);
+  document.getElementById('edit-modal').style.display='flex';
+}
+function closeEditModal(){_editId=null;document.getElementById('edit-modal').style.display='none';}
+function calcEdit(){
+  const o=S.orders.find(x=>x.id===_editId);if(!o)return;
+  const q=+document.getElementById('ed-qty').value||0;
+  const p=+document.getElementById('ed-price').value||0;
+  document.getElementById('ed-ea').value=q?q*o.conv+' EA':'';
+  document.getElementById('ed-total').value=q&&p?'$'+(q*p).toFixed(2):'';
+}
+function saveEdit(){
+  const o=S.orders.find(x=>x.id===_editId);if(!o)return;
+  const qty=+document.getElementById('ed-qty').value;
+  const price=+document.getElementById('ed-price').value;
+  if(!qty||!price){alert('수량과 단가를 입력하세요.');return;}
+  o.date=document.getElementById('ed-date').value;
+  o.inv=document.getElementById('ed-inv').value;
+  o.qty=qty;o.price=price;
+  o.qtyEA=qty*o.conv;
+  o.total=+(qty*price).toFixed(2);
+  closeEditModal();saveLocal();renderOrderTable();renderDashboard();
+}
+// ESC로 모달 닫기
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeEditModal();});
 
 // ── SHIPMENT ──
 function onFileIn(e){const f=e.target.files[0];if(f)readXLSX(f);e.target.value='';}
@@ -604,35 +723,66 @@ function delShip(date){S.shipments=S.shipments.filter(s=>s.date!==date);saveLoca
 function renderShipLog(){
   const tbody=document.getElementById('ship-tbody');const empty=document.getElementById('ship-empty');
   if(!S.shipments.length){tbody.innerHTML='';empty.style.display='block';return;}empty.style.display='none';
+  const firstOrderDate=S.orders.length?S.orders.map(o=>o.date).sort()[0]:null;
   const byDate={};S.shipments.forEach(s=>{byDate[s.date]=(byDate[s.date]||0)+s.qty;});
   const sorted=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
   let cum=0;const cumMap={};sorted.forEach(([d,q])=>{cum+=q;cumMap[d]=cum;});
   const cycs=buildCycles();const moMap={};cycs.forEach(c=>moMap[c.month]=c);
   const {avgTR,stdTR}=tapeStats(cycs);
   tbody.innerHTML=[...sorted].reverse().map(([d,q])=>{
+    const excluded=firstOrderDate&&d<firstOrderDate;
     const c=moMap[d.slice(0,7)];const er=c?.extRatio;const tr=c?.tapeRatio;
     const erCl=er==null?'neu':er>1.2||er<0.5?'danger':er>1.0?'warn':'ok';
     const trCl=tr==null?'neu':stdTR&&tr>avgTR+2*stdTR?'danger':'ok';
     const ov=erCl==='danger'||trCl==='danger'?'danger':erCl==='warn'?'warn':'ok';
+    if(excluded)return`<tr style="opacity:.45;background:var(--bg)"><td>${d}</td><td class="mono">${fmt(q)}</td><td class="mono" style="color:var(--text3)">${fmt(cumMap[d])}</td><td colspan="3"><span class="badge neu"><i class="ti ti-clock" style="font-size:10px"></i> 첫 주문 이전 — 계산 제외</span></td><td><button class="btn sm red" onclick="delShip('${d}')"><i class="ti ti-trash"></i></button></td></tr>`;
     return`<tr><td>${d}</td><td class="mono">${fmt(q)}</td><td class="mono">${fmt(cumMap[d])}</td><td>${er!=null?badge(erCl,er.toFixed(3)):'—'}</td><td>${tr!=null?`<span class="mono">${tr.toFixed(3)}‰</span>`:'—'}</td><td>${er!=null?badge(ov,ov==='danger'?'이상':ov==='warn'?'주의':'정상'):'—'}</td><td><button class="btn sm red" onclick="delShip('${d}')"><i class="ti ti-trash"></i></button></td></tr>`;
   }).join('');
 }
 
 // ── CYCLES ──
+// 외부포장: BOX + MAILER 합산 → 출고 1건당 1개 기준
+// 완충재: AIRSPEED + BUBBLE ROLL + PAPER 합산 → 셋 중 하나 사용, 롤/천건
+// 테이프: 별도, 롤/천건
 function buildCycles(){
   if(!S.shipments.length)return[];
-  const byMo={};S.shipments.forEach(s=>{byMo[s.date.slice(0,7)]=(byMo[s.date.slice(0,7)]||0)+s.qty;});
+
+  // 첫 주문(입고) 날짜 = 재고 시작점. 그 이전 출고는 이전 재고 소모로 간주, 계산 제외
+  const firstOrderDate=S.orders.length?S.orders.map(o=>o.date).sort()[0]:null;
+
+  const byMo={};
+  S.shipments.forEach(s=>{
+    // 첫 주문일 이전 출고는 제외
+    if(firstOrderDate&&s.date<firstOrderDate)return;
+    byMo[s.date.slice(0,7)]=(byMo[s.date.slice(0,7)]||0)+s.qty;
+  });
+
+  if(!Object.keys(byMo).length)return[];
+
   const oMo={};
-  S.orders.forEach(o=>{const mo=o.date.slice(0,7);if(!oMo[mo])oMo[mo]={ext:0,tape:0,air:0,paper:0,spend:0};
+  S.orders.forEach(o=>{
+    const mo=o.date.slice(0,7);
+    if(!oMo[mo])oMo[mo]={ext:0,tape:0,cushion:0,cushionBreakdown:{},spend:0};
     if(o.cat==='BOX'||o.cat==='MAILER')oMo[mo].ext+=o.qtyEA;
     if(o.cat==='TAPE')oMo[mo].tape+=o.qtyEA;
-    if(o.cat==='AIRSPEED')oMo[mo].air+=o.qtyEA;
-    if(o.cat==='PAPER')oMo[mo].paper+=o.qtyEA;
+    if(o.cat==='AIRSPEED'||o.cat==='BUBBLE ROLL'||o.cat==='PAPER'){
+      oMo[mo].cushion+=o.qtyEA;
+      oMo[mo].cushionBreakdown[o.cat]=(oMo[mo].cushionBreakdown[o.cat]||0)+o.qtyEA;
+    }
     oMo[mo].spend+=o.total;
   });
+
   return Object.entries(byMo).sort((a,b)=>a[0].localeCompare(b[0])).map(([mo,ships])=>{
-    const o=oMo[mo]||{ext:0,tape:0,air:0,paper:0,spend:0};
-    return{month:mo,ships,extQty:o.ext,extRatio:o.ext?o.ext/ships:null,tapeRatio:o.tape?o.tape/ships*1000:null,airRatio:o.air?o.air/ships*1000:null,paperRatio:o.paper?o.paper/ships*1000:null,spend:o.spend};
+    const o=oMo[mo]||{ext:0,tape:0,cushion:0,cushionBreakdown:{},spend:0};
+    const mainCushion=Object.entries(o.cushionBreakdown).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+    return{
+      month:mo,ships,
+      extQty:o.ext,extRatio:o.ext?o.ext/ships:null,
+      tapeQty:o.tape,tapeRatio:o.tape?o.tape/ships*1000:null,
+      cushionQty:o.cushion,cushionRatio:o.cushion?o.cushion/ships*1000:null,
+      cushionBreakdown:o.cushionBreakdown,mainCushion,
+      spend:o.spend
+    };
   });
 }
 function tapeStats(cycs){
@@ -645,7 +795,9 @@ function tapeStats(cycs){
 // ── DASHBOARD ──
 function renderDashboard(){
   const cycs=buildCycles();
-  const totalShips=S.shipments.reduce((a,s)=>a+s.qty,0);
+  // 첫 주문일 이후 출고건수만 집계 (첫 주문 이전은 이전 재고 소모로 간주)
+  const firstOrderDate=S.orders.length?S.orders.map(o=>o.date).sort()[0]:null;
+  const totalShips=S.shipments.filter(s=>!firstOrderDate||s.date>=firstOrderDate).reduce((a,s)=>a+s.qty,0);
   const totalSpend=S.orders.reduce((a,o)=>a+o.total,0);
   const extOrd=S.orders.filter(o=>o.cat==='BOX'||o.cat==='MAILER').reduce((a,o)=>a+o.qtyEA,0);
   const tapeOrd=S.orders.filter(o=>o.cat==='TAPE').reduce((a,o)=>a+o.qtyEA,0);
@@ -680,7 +832,8 @@ function renderDashboard(){
   const inv=document.getElementById('dash-inv');
   if(!S.orders.length){inv.innerHTML='<div class="empty"><i class="ti ti-package-off"></i>주문 이력이 없습니다</div>';}
   else inv.innerHTML=Object.entries(catOrd).map(([cat,total])=>{
-    const est=(cat==='BOX'||cat==='MAILER')?Math.round(totalShips*avgExt*(cat==='BOX'?0.7:0.3)):cat==='TAPE'?Math.round(totalShips*avgTR/1000):0;
+    const avgCushR=cycs.filter(c=>c.cushionRatio!=null).length?cycs.filter(c=>c.cushionRatio!=null).reduce((a,c)=>a+c.cushionRatio,0)/cycs.filter(c=>c.cushionRatio!=null).length:0;
+    const est=(cat==='BOX'||cat==='MAILER')?Math.round(totalShips*avgExt*(cat==='BOX'?0.7:0.3)):cat==='TAPE'?Math.round(totalShips*avgTR/1000):(cat==='AIRSPEED'||cat==='BUBBLE ROLL'||cat==='PAPER')?Math.round(totalShips*avgCushR/1000):0;
     const bal=total-est;const pct=total?Math.min(100,Math.round(est/total*100)):0;const col=catCol(cat);
     return`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="flex:1"><div style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">${cat}<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${col}18;color:${col};font-weight:600">${fmt(total)} EA</span></div><div class="pbar"><div class="pbar-fill" style="width:${pct}%;background:${col}"></div></div><div style="font-size:10px;color:var(--text3);margin-top:2px">소비추정 ${pct}%</div></div><div style="text-align:right;min-width:65px"><div style="font-size:15px;font-weight:700;color:${bal<0?'var(--danger)':bal<200?'var(--warn)':'var(--text)'}">${fmt(bal)}</div><div style="font-size:10px;color:var(--text3)">잔여 EA</div></div></div>`;
   }).join('');
@@ -720,9 +873,15 @@ function renderMonthSummary(){
 function renderInvoiceSummary(){
   const el=document.getElementById('invoice-summary');
   if(!S.orders.length){el.innerHTML='<div class="empty"><i class="ti ti-file-off"></i>주문 이력이 없습니다</div>';return;}
+  const q=(document.getElementById('inv-search')?.value||'').trim().toLowerCase();
   const byInv={};
   S.orders.forEach(o=>{const key=o.inv||'(인보이스 없음)';if(!byInv[key])byInv[key]={inv:key,orders:[],total:0,date:o.date,sup:o.sup};byInv[key].orders.push(o);byInv[key].total+=o.total;if(o.date>byInv[key].date)byInv[key].date=o.date;});
-  const sorted=Object.values(byInv).sort((a,b)=>b.date.localeCompare(a.date));
+  let sorted=Object.values(byInv).sort((a,b)=>b.date.localeCompare(a.date));
+  if(q)sorted=sorted.filter(g=>g.inv.toLowerCase().includes(q));
+  const countEl=document.getElementById('inv-result-count');
+  if(q){countEl.style.display='block';countEl.innerHTML=sorted.length?`<i class="ti ti-search"></i> "${q}" 검색 결과 <strong>${sorted.length}건</strong>`:`<i class="ti ti-search-off"></i> "<strong>${q}</strong>" 검색 결과 없음`;}
+  else{countEl.style.display='none';}
+  if(!sorted.length){el.innerHTML=`<div class="empty"><i class="ti ti-file-search"></i>일치하는 인보이스가 없습니다</div>`;return;}
   el.innerHTML=sorted.map(g=>{
     const catMap={};g.orders.forEach(o=>{catMap[o.cat]=(catMap[o.cat]||0)+o.qtyEA;});
     const chips=Object.entries(catMap).map(([c,q])=>`<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:${catCol(c)}18;color:${catCol(c)};font-weight:600;margin-right:3px">${c} ${fmt(q)}</span>`).join('');
@@ -778,23 +937,65 @@ function renderPeriodSummary(){
 // ── ANALYSIS ──
 function renderAnalysis(){
   const cycs=buildCycles();const {avgTR,stdTR}=tapeStats(cycs);
-  const extV=cycs.filter(c=>c.extRatio!=null);const tapeV=cycs.filter(c=>c.tapeRatio!=null);
+  const extV=cycs.filter(c=>c.extRatio!=null);
+  const tapeV=cycs.filter(c=>c.tapeRatio!=null);
+  const cushV=cycs.filter(c=>c.cushionRatio!=null);
   const avgExt=extV.length?extV.reduce((a,c)=>a+c.extRatio,0)/extV.length:null;
-  const anom=cycs.filter(c=>(c.extRatio!=null&&(c.extRatio>1.2||c.extRatio<0.5))||(c.tapeRatio!=null&&stdTR&&c.tapeRatio>avgTR+2*stdTR)).length;
+  const avgCush=cushV.length?cushV.reduce((a,c)=>a+c.cushionRatio,0)/cushV.length:null;
+  const stdCush=cushV.length?Math.sqrt(cushV.reduce((a,c)=>a+Math.pow(c.cushionRatio-avgCush,2),0)/cushV.length):0;
+  const anom=cycs.filter(c=>{
+    const extBad=c.extRatio!=null&&(c.extRatio>1.2||c.extRatio<0.5);
+    const tapeBad=c.tapeRatio!=null&&stdTR&&c.tapeRatio>avgTR+2*stdTR;
+    const cushBad=c.cushionRatio!=null&&stdCush&&c.cushionRatio>avgCush+2*stdCush;
+    return extBad||tapeBad||cushBad;
+  }).length;
+
   document.getElementById('kpi-analysis').innerHTML=`
     <div class="kpi"><div class="lbl">분석 월 수</div><div class="val">${cycs.length}</div></div>
     <div class="kpi${anom?' danger':' ok'}"><div class="lbl">이상 감지</div><div class="val">${anom}</div><div class="sub">기간</div></div>
-    <div class="kpi"><div class="lbl">평균 외부포장 소모율</div><div class="val">${avgExt!=null?avgExt.toFixed(3):'—'}</div><div class="sub">건당 (기준 1.0)</div></div>
+    <div class="kpi"><div class="lbl">평균 외부포장 소모율</div><div class="val">${avgExt!=null?avgExt.toFixed(3):'—'}</div><div class="sub">건당 BOX+MAILER (기준 1.0)</div></div>
     <div class="kpi"><div class="lbl">평균 테이프 소모율</div><div class="val">${avgTR?avgTR.toFixed(2)+'‰':'—'}</div><div class="sub">천건당 롤</div></div>`;
-  document.getElementById('box-ratios').innerHTML=!extV.length?'<div class="empty">데이터 없음</div>':extV.slice(-10).map(c=>{const r=c.extRatio;const cl=r>1.2||r<0.5?'danger':r>1.0?'warn':'ok';const col={ok:'var(--ok)',warn:'var(--warn)',danger:'var(--danger)'}[cl];return`<div class="rrow"><div class="rname">${c.month}</div><div class="rbar"><div class="pbar"><div class="pbar-fill" style="width:${Math.min(130,Math.round(r*100))}%;background:${col}"></div></div></div><div class="rval">${badge(cl,r.toFixed(3))}</div></div>`;}).join('');
-  document.getElementById('cons-stats').innerHTML=!tapeV.length?'<div class="empty">테이프 주문 데이터 없음</div>':`<div class="tw"><table><thead><tr><th>자재</th><th>평균(‰)</th><th>σ</th><th>이상기준</th></tr></thead><tbody><tr><td>테이프</td><td class="mono">${avgTR.toFixed(3)}</td><td class="mono">±${stdTR.toFixed(3)}</td><td class="mono">&gt;${(avgTR+2*stdTR).toFixed(3)}</td></tr></tbody></table></div><p style="font-size:11px;color:var(--text3);margin-top:8px">‰=출고 1,000건당 롤 소비. 초과 시 타 용도 사용 의심.</p>`;
+
+  // 외부포장 소모율 바
+  document.getElementById('box-ratios').innerHTML=!extV.length?'<div class="empty">데이터 없음</div>':extV.slice(-10).map(c=>{
+    const r=c.extRatio;const cl=r>1.2||r<0.5?'danger':r>1.0?'warn':'ok';
+    const col={ok:'var(--ok)',warn:'var(--warn)',danger:'var(--danger)'}[cl];
+    return`<div class="rrow"><div class="rname">${c.month}</div><div class="rbar"><div class="pbar"><div class="pbar-fill" style="width:${Math.min(130,Math.round(r*100))}%;background:${col}"></div></div></div><div class="rval">${badge(cl,r.toFixed(3))}</div></div>`;
+  }).join('');
+
+  // 소모재 통계: 테이프 + 완충재
+  const consRows=[];
+  if(tapeV.length)consRows.push(`<tr><td>테이프</td><td class="mono">${avgTR.toFixed(3)}</td><td class="mono">±${stdTR.toFixed(3)}</td><td class="mono">&gt;${(avgTR+2*stdTR).toFixed(3)}</td><td style="font-size:11px;color:var(--text3)">전체 주문 대비 별도 계산</td></tr>`);
+  if(cushV.length){
+    // 완충재 주요 사용 품목 집계
+    const allBreakdown={};cycs.forEach(c=>Object.entries(c.cushionBreakdown||{}).forEach(([k,v])=>{allBreakdown[k]=(allBreakdown[k]||0)+v;}));
+    const mainItems=Object.entries(allBreakdown).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k}(${fmt(v)}EA)`).join(', ');
+    consRows.push(`<tr><td>완충재 합산<br><span style="font-size:10px;color:var(--text3)">${mainItems}</span></td><td class="mono">${avgCush.toFixed(3)}</td><td class="mono">±${stdCush.toFixed(3)}</td><td class="mono">&gt;${(avgCush+2*stdCush).toFixed(3)}</td><td style="font-size:11px;color:var(--text3)">AIRSPEED+BUBBLE ROLL+PAPER 합산</td></tr>`);
+  }
+  document.getElementById('cons-stats').innerHTML=!consRows.length?'<div class="empty">소모재 주문 데이터 없음</div>':`
+    <div class="tw"><table><thead><tr><th>자재</th><th>평균(‰)</th><th>σ</th><th>이상기준(μ+2σ)</th><th>비고</th></tr></thead>
+    <tbody>${consRows.join('')}</tbody></table></div>
+    <p style="font-size:11px;color:var(--text3);margin-top:8px">‰=출고 1,000건당 롤 소비. 이상기준 초과 시 타 용도 사용 의심.</p>`;
+
   const empty=document.getElementById('analysis-empty');const tbody=document.getElementById('analysis-tbody');
   if(!cycs.length){tbody.innerHTML='';empty.style.display='block';return;}empty.style.display='none';
   tbody.innerHTML=[...cycs].sort((a,b)=>b.month.localeCompare(a.month)).map(c=>{
     const er=c.extRatio;const erCl=er==null?'neu':er>1.2||er<0.5?'danger':er>1.0?'warn':'ok';
     const tr=c.tapeRatio;const trCl=tr==null?'neu':stdTR&&tr>avgTR+2*stdTR?'danger':'ok';
-    const ov=erCl==='danger'||trCl==='danger'?'danger':erCl==='warn'?'warn':'ok';
-    return`<tr><td>${c.month}</td><td class="mono">${fmt(c.ships)}</td><td class="mono">${fmt(c.extQty)}</td><td>${er!=null?badge(erCl,er.toFixed(3)):'—'}</td><td>${tr!=null?`<span class="mono">${tr.toFixed(3)}‰</span> ${badge(trCl,trCl==='ok'?'정상':'이상')}`:'—'}</td><td>${c.airRatio!=null?`<span class="mono">${c.airRatio.toFixed(3)}‰</span>`:'—'}</td><td>${badge(ov,ov==='ok'?'정상':ov==='warn'?'주의':'이상')}</td></tr>`;
+    const cr=c.cushionRatio;const crCl=cr==null?'neu':stdCush&&cr>avgCush+2*stdCush?'danger':'ok';
+    const ov=[erCl,trCl,crCl].includes('danger')?'danger':[erCl,trCl,crCl].includes('warn')?'warn':'ok';
+    // 완충재 breakdown 표시
+    const cushDetail=c.mainCushion?`<span style="font-size:10px;color:var(--text3);display:block">${c.mainCushion}</span>`:'';
+    return`<tr>
+      <td>${c.month}</td>
+      <td class="mono">${fmt(c.ships)}</td>
+      <td class="mono">${fmt(c.extQty)}</td>
+      <td>${er!=null?badge(erCl,er.toFixed(3)):'—'}</td>
+      <td>${cr!=null?`<span class="mono">${cr.toFixed(3)}‰</span> ${badge(crCl,crCl==='ok'?'정상':'이상')}`:'—'}${cushDetail}</td>
+      <td style="font-size:11px;color:var(--text3)">${c.mainCushion||'—'}</td>
+      <td>${tr!=null?`<span class="mono">${tr.toFixed(3)}‰</span> ${badge(trCl,trCl==='ok'?'정상':'이상')}`:'—'}</td>
+      <td>${badge(ov,ov==='ok'?'정상':ov==='warn'?'주의':'이상')}</td>
+    </tr>`;
   }).join('');
 }
 
