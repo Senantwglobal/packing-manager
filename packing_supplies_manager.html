@@ -214,7 +214,10 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
 
 <!-- ===== DASHBOARD ===== -->
 <div id="page-dashboard" class="page active">
+  <!-- KPI Row -->
   <div class="kpi-row" id="kpi-dash"></div>
+
+  <!-- Row 1: 알림 + 재고현황 -->
   <div class="grid2" style="margin-bottom:14px">
     <div class="card">
       <div class="card-hd"><div class="card-hd-l"><i class="ti ti-bell"></i>알림</div></div>
@@ -226,41 +229,45 @@ input[readonly]:focus{border-color:var(--border);box-shadow:none}
     </div>
   </div>
 
-  <!-- 기간 선택 -->
-  <div class="card">
-    <div class="card-hd">
-      <div class="card-hd-l"><i class="ti ti-calendar-stats"></i>기간별 요약</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input type="date" id="range-from" style="width:140px;font-size:12px">
-        <span style="font-size:12px;color:var(--text3)">~</span>
-        <input type="date" id="range-to" style="width:140px;font-size:12px">
-        <button class="btn sm primary" onclick="renderPeriodSummary()"><i class="ti ti-search"></i>조회</button>
-        <button class="btn sm ghost" onclick="resetPeriod()">전체</button>
-      </div>
+  <!-- Row 2: 최근 인보이스 사이클 소모율 + 카테고리별 지출 -->
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><i class="ti ti-trending-up"></i>최근 소모율 (인보이스 사이클)</div></div>
+      <div id="dash-recent-cycles"></div>
     </div>
-    <div id="period-summary"></div>
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><i class="ti ti-chart-donut"></i>카테고리별 총 지출</div></div>
+      <div id="dash-cat-spend"></div>
+    </div>
   </div>
 
-  <!-- 월별 요약 -->
-  <div class="card">
-    <div class="card-hd"><div class="card-hd-l"><i class="ti ti-calendar-month"></i>월별 주문 요약</div></div>
-    <div id="month-summary"></div>
-  </div>
-
-  <!-- 인보이스별 요약 -->
+  <!-- Row 3: 인보이스 요약 테이블 (전체, 펼치기 없이) -->
   <div class="card">
     <div class="card-hd">
-      <div class="card-hd-l"><i class="ti ti-file-invoice"></i>인보이스별 요약</div>
+      <div class="card-hd-l"><i class="ti ti-file-invoice"></i>인보이스 요약</div>
       <div style="display:flex;align-items:center;gap:7px">
         <div style="position:relative">
           <i class="ti ti-search" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text3);pointer-events:none"></i>
-          <input type="text" id="inv-search" placeholder="인보이스 번호 검색..." oninput="renderInvoiceSummary()" style="width:220px;padding-left:30px;font-size:12px">
+          <input type="text" id="inv-search" placeholder="인보이스 번호 검색..." oninput="renderInvoiceSummary()" style="width:200px;padding-left:30px;font-size:12px">
         </div>
         <button class="btn sm ghost" onclick="document.getElementById('inv-search').value='';renderInvoiceSummary()"><i class="ti ti-x"></i></button>
       </div>
     </div>
     <div id="inv-result-count" style="font-size:12px;color:var(--text3);margin-bottom:8px;display:none"></div>
+    <!-- 인보이스 요약 테이블 (항상 표시) -->
+    <div class="tw" style="margin-bottom:12px">
+      <table><thead><tr><th>인보이스 #</th><th>날짜</th><th>공급업체</th><th>아이템 수</th><th>카테고리</th><th>총금액</th></tr></thead>
+      <tbody id="inv-table-body"></tbody></table>
+      <div id="inv-table-empty" class="empty" style="display:none"><i class="ti ti-file-off"></i>주문 이력이 없습니다</div>
+    </div>
+    <!-- 상세 (클릭 시 펼쳐짐) -->
     <div id="invoice-summary"></div>
+  </div>
+
+  <!-- Row 4: 월별 주문 요약 -->
+  <div class="card">
+    <div class="card-hd"><div class="card-hd-l"><i class="ti ti-calendar-month"></i>월별 주문 요약</div></div>
+    <div id="month-summary"></div>
   </div>
 </div>
 
@@ -901,9 +908,10 @@ function renderMonthSummary(){
   if(!S.orders.length){el.innerHTML='<div class="empty"><i class="ti ti-calendar-off"></i>주문 이력이 없습니다</div>';return;}
   const byMo={};
   S.orders.forEach(o=>{const mo=o.date.slice(0,7);if(!byMo[mo])byMo[mo]={spend:0,orders:[],ships:0};byMo[mo].spend+=o.total;byMo[mo].orders.push(o);});
+  const _fod=S.orders.length?S.orders.map(o=>o.date).sort()[0]:null;
   S.shipments.forEach(s=>{
     const mo=s.date.slice(0,7);
-    if(firstOrderDate&&s.date<firstOrderDate)return;
+    if(_fod&&s.date<_fod)return;
     if(byMo[mo])byMo[mo].ships+=s.qty;
   });
   const sorted=Object.entries(byMo).sort((a,b)=>b[0].localeCompare(a[0]));
@@ -928,7 +936,15 @@ function renderMonthSummary(){
 
 function renderInvoiceSummary(){
   const el=document.getElementById('invoice-summary');
-  if(!S.orders.length){el.innerHTML='<div class="empty"><i class="ti ti-file-off"></i>주문 이력이 없습니다</div>';return;}
+  const tbEl=document.getElementById('inv-table-body');
+  const tbEmpty=document.getElementById('inv-table-empty');
+  if(!S.orders.length){
+    if(el)el.innerHTML='';
+    if(tbEl)tbEl.innerHTML='';
+    if(tbEmpty)tbEmpty.style.display='block';
+    return;
+  }
+  if(tbEmpty)tbEmpty.style.display='none';
   const q=(document.getElementById('inv-search')?.value||'').trim().toLowerCase();
   const byInv={};
   S.orders.forEach(o=>{const key=o.inv||'(인보이스 없음)';if(!byInv[key])byInv[key]={inv:key,orders:[],total:0,date:o.date,sup:o.sup};byInv[key].orders.push(o);byInv[key].total+=o.total;if(o.date>byInv[key].date)byInv[key].date=o.date;});
@@ -937,7 +953,33 @@ function renderInvoiceSummary(){
   const countEl=document.getElementById('inv-result-count');
   if(q){countEl.style.display='block';countEl.innerHTML=sorted.length?`<i class="ti ti-search"></i> "${q}" 검색 결과 <strong>${sorted.length}건</strong>`:`<i class="ti ti-search-off"></i> "<strong>${q}</strong>" 검색 결과 없음`;}
   else{countEl.style.display='none';}
-  if(!sorted.length){el.innerHTML=`<div class="empty"><i class="ti ti-file-search"></i>일치하는 인보이스가 없습니다</div>`;return;}
+
+  // 요약 테이블 (항상 표시)
+  if(tbEl){
+    tbEl.innerHTML=sorted.map(g=>{
+      const catMap={};g.orders.forEach(o=>{catMap[o.cat]=(catMap[o.cat]||0)+o.qtyEA;});
+      const chips=Object.entries(catMap).map(([c,q])=>`<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${catCol(c)}18;color:${catCol(c)};font-weight:600;margin-right:2px">${c}</span>`).join('');
+      const detailId='inv-'+g.inv.replace(/[^a-z0-9]/gi,'_');
+      return`<tr style="cursor:pointer" onclick="document.getElementById('${detailId}')?.classList.toggle('open');this.querySelector('.chevron').classList.toggle('ti-chevron-down');this.querySelector('.chevron').classList.toggle('ti-chevron-right')">
+        <td style="font-weight:600"><i class="ti ti-chevron-right chevron" style="font-size:11px;color:var(--text3);margin-right:4px"></i>${g.inv}</td>
+        <td>${g.date}</td>
+        <td><span class="chip">${g.sup}</span></td>
+        <td class="mono">${g.orders.length}</td>
+        <td>${chips}</td>
+        <td class="mono" style="font-weight:700">$${fmt(g.total)}</td>
+      </tr>
+      <tr><td colspan="6" style="padding:0">
+        <div class="ms-body" id="${detailId}" style="padding:12px 16px;background:var(--bg)">
+          <div class="tw"><table><thead><tr><th>날짜</th><th>코드</th><th>상품명</th><th>카테고리</th><th>수량</th><th>EA환산</th><th>단가</th><th>금액</th></tr></thead>
+          <tbody>${g.orders.map(o=>`<tr><td>${o.date}</td><td class="mono">${o.code}</td><td>${o.name}${o.size?` <span style="font-size:10px;color:var(--text3)">${o.size}</span>`:''}</td><td>${catBadge(o.cat)}</td><td class="mono">${fmt(o.qty)} ${o.unit}</td><td class="mono">${fmt(o.qtyEA)}</td><td class="mono">$${o.price.toFixed(2)}</td><td class="mono">$${fmt(o.total)}</td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+      </td></tr>`;
+    }).join('');
+  }
+
+  if(!sorted.length){if(el)el.innerHTML=`<div class="empty"><i class="ti ti-file-search"></i>일치하는 인보이스가 없습니다</div>`;return;}
+  if(el)el.innerHTML=''; // 기존 카드형 제거 (테이블로 통합)
   el.innerHTML=sorted.map(g=>{
     const catMap={};g.orders.forEach(o=>{catMap[o.cat]=(catMap[o.cat]||0)+o.qtyEA;});
     const chips=Object.entries(catMap).map(([c,q])=>`<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:${catCol(c)}18;color:${catCol(c)};font-weight:600;margin-right:3px">${c} ${fmt(q)}</span>`).join('');
@@ -958,37 +1000,9 @@ function renderInvoiceSummary(){
   }).join('');
 }
 
-function resetPeriod(){
-  const dates=S.orders.map(o=>o.date).sort();
-  if(dates.length){document.getElementById('range-from').value=dates[0];document.getElementById('range-to').value=dates[dates.length-1];}
-  renderPeriodSummary();
-}
-function renderPeriodSummary(){
-  const el=document.getElementById('period-summary');
-  const from=document.getElementById('range-from').value;
-  const to=document.getElementById('range-to').value;
-  const orders=from&&to?S.orders.filter(o=>o.date>=from&&o.date<=to):S.orders;
-  const ships=from&&to?S.shipments.filter(s=>s.date>=from&&s.date<=to):S.shipments;
-  if(!orders.length&&!ships.length){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text3)">해당 기간에 데이터가 없습니다</div>';return;}
-  const totalSpend=orders.reduce((a,o)=>a+o.total,0);
-  const totalShips=ships.reduce((a,s)=>a+s.qty,0);
-  const catMap={};orders.forEach(o=>{catMap[o.cat]=(catMap[o.cat]||0)+o.total;});
-  const invMap={};orders.forEach(o=>{const k=o.inv||'없음';invMap[k]=(invMap[k]||0)+o.total;});
-  el.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-      <div class="kpi"><div class="lbl">기간 주문금액</div><div class="val">$${fmt(totalSpend)}</div><div class="sub">${orders.length}건</div></div>
-      <div class="kpi"><div class="lbl">기간 출고건수</div><div class="val">${fmt(totalShips)}</div><div class="sub">${ships.length}일</div></div>
-      <div class="kpi"><div class="lbl">건당 평균단가</div><div class="val">${totalShips?'$'+((totalSpend/totalShips)||0).toFixed(2):'—'}</div><div class="sub">주문금액/출고건</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">카테고리별 지출</div>
-        ${Object.entries(catMap).sort((a,b)=>b[1]-a[1]).map(([c,v])=>{const pct=Math.round(v/totalSpend*100);return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:12px;flex:0 0 90px;color:${catCol(c)};font-weight:600">${c}</span><div class="pbar" style="flex:1"><div class="pbar-fill" style="width:${pct}%;background:${catCol(c)}"></div></div><span class="mono" style="flex:0 0 65px;text-align:right">$${fmt(v)}</span></div>`;}).join('')}
-      </div>
-      <div><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">인보이스별 지출</div>
-        ${Object.entries(invMap).sort((a,b)=>b[1]-a[1]).map(([inv,v])=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text2)">${inv}</span><span class="mono">$${fmt(v)}</span></div>`).join('')}
-      </div>
-    </div>`;
-}
+// renderPeriodSummary 제거 — 대시보드 통합으로 대체
+function resetPeriod(){}
+function renderPeriodSummary(){}
 
 // ── ANALYSIS ──
 function renderAnalysis(){
